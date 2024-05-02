@@ -1,0 +1,55 @@
+##########################
+# STAGE 1 Dependencies
+##########################
+FROM node:21-alpine3.19 as deps
+
+WORKDIR /usr/src/app
+
+COPY package.json ./
+COPY package-lock.json ./
+
+RUN npm install
+
+##########################
+# STAGE 2 Builder
+##########################
+FROM node:21-alpine3.19 as build
+
+WORKDIR /usr/src/app
+
+# Copy node modules from deps
+COPY --from=deps /usr/src/app/node_modules ./node_modules
+
+# Copy all source code
+COPY . .
+
+# RUN npm run test
+RUN npm run build
+
+# Clean
+RUN npm ci -f --only=production && npm cache clean --force
+
+RUN npx prisma generate
+
+##########################
+# STAGE 3 Production
+##########################
+FROM node:21-alpine3.19 as prod
+
+WORKDIR /usr/src/app
+
+COPY --from=build /usr/src/app/node_modules ./node_modules
+
+# Copy dist folder
+COPY --from=build /usr/src/app/dist ./dist
+
+# Copy prisma folder
+COPY --from=build /usr/src/app/prisma ./prisma
+
+ENV NODE_ENV=production
+
+USER node
+
+EXPOSE 3000
+
+CMD ["node", "dist/main.js"]
